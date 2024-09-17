@@ -8,6 +8,8 @@ const ip = "213.179.209.168";
 const port = 17176;
 
 pub fn main() !void {
+    //c.enet_initialize()
+
     const client = c.enet_host_create(null, 1, 2, 0, 0);
     if (client == null) {
         return error.ENetHostCreate;
@@ -33,7 +35,6 @@ pub fn main() !void {
 
     var event: c.ENetEvent = undefined;
     if (c.enet_host_service(client, &event, 200000) > 0 and event.type == c.ENET_EVENT_TYPE_CONNECT) {
-        std.debug.print("connected\n", .{});
     } else {
         std.debug.print("pizda\n", .{});
         c.enet_peer_reset(peer);
