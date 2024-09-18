@@ -1005,7 +1005,6 @@ enet_protocol_handle_incoming_commands (ENetHost * host, ENetEvent * event)
     peerID &= ~ (ENET_PROTOCOL_HEADER_FLAG_MASK | ENET_PROTOCOL_HEADER_SESSION_MASK);
 
     headerSize = (flags & ENET_PROTOCOL_HEADER_FLAG_SENT_TIME ? sizeof (ENetProtocolHeader) : (size_t) & ((ENetProtocolHeader *) 0) -> sentTime);
-    printf("header size: %d\n", headerSize);
     if (host -> checksum != NULL)
       headerSize += sizeof (enet_uint32);
 
