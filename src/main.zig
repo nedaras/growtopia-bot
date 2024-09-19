@@ -3,6 +3,8 @@ const c = @cImport({
     @cInclude("enet.h");
 });
 
+// that serverdata.php sounds dumb but mb there is we send our token it will return user data and stuff and real server address with ip
+
 // what todo here if user is in linux how to add popup
 // https://login.growtopiagame.com/google/redirect?token=S0tfHyJ3sko6UGB4NE1KrjOg05BAErT2GpSXH%2BNpVw1RD05RLUPOf4Rjf5InkDFBL916gdTy2550hSpjpz0hEHpvpRcl%2FCSYD3JwiKhje%2B%2BNuqwANYG%2B8ny2dvUdo5ijoe2x8YJw4W0NUKzvx3ZDSBwufm92Tan99tarM4t8tdrMu8c6wLdyQcNmCunVagh7dbI2Uzprka5FS1%2BCkAyvnnDw0KPsJ6E3BX3YXXkH03PahMh2nBvIz26DMUvEergUivGTC4%2FCOLE1z6ecQ5jfTaOYq9RRdmRMoAmlFEBIKJ13IFD7E8ohztEPOK%2Bbi7AWgAsIIE4k84P1ZBPs75k9xSzTbzqkI0yqMyz6HhSlJqfvNBHDQqWqP6Ljpum2MPMSGrs%2FnKXe6hZ8PEwYm7z5i41DZ%2B%2F38GiAz5oa9McLR2faV30NUJO6dFyMwnQdZVL%2F
 
@@ -122,7 +124,40 @@ fn connectToServer(address: Address, username: []const u8, token: []const u8, co
         while (c.enet_host_service(client, &event, 0) > 0) {
             switch (event.type) {
                 c.ENET_EVENT_TYPE_CONNECT => {
-                    std.debug.print("connected\n", .{});
+                },
+                c.ENET_EVENT_TYPE_RECEIVE => {
+                    std.debug.print("packet\n", .{});
+                    if (event.packet.*.dataLength > 3) {
+                        std.debug.print("type: {d}\n", .{event.packet.*.data[0]});
+                        std.debug.print("data({d}): {s}\n", .{event.packet.*.dataLength, event.packet.*.data[0..event.packet.*.dataLength]});
+                    }
+                    if (event.packet.*.data[0] == 1) {
+
+                    _ = username;
+                    // token has some shit storred inside it idk how to access it
+                    var buf: [1024]u8 = undefined;
+                    const packet = try std.fmt.bufPrint(&buf, "\x02\x00\x00\x00protocol|210\nltoken|{s}\nplatformID|0,1,1\x00", .{token});
+
+                    const enet_paket = c.enet_packet_create(null, packet.len, 1);
+                    @memcpy(enet_paket.*.data[0..packet.len], packet);
+
+                    // can error 
+                    _ = c.enet_peer_send(peer, 0, enet_paket);
+                        //var buf: [4096]u8 = undefined;
+                        // dont commit this is sensitive
+
+                        //std.debug.print("out: {s}\n", .{packet});
+
+                        //const enet_paket = c.enet_packet_create(null, packet.len, 1);
+                        //@memcpy(enet_paket.*.data[0..packet.len], packet);
+
+                        // can error 
+                        //_ = c.enet_peer_send(peer, 0, enet_paket);
+
+                    }
+                },
+                c.ENET_EVENT_TYPE_DISCONNECT => {
+                    std.debug.print("disconnect\n", .{});
                 },
                 else => {
                     std.debug.print("unknown packet ev: {d}\n", .{event.type});
@@ -157,8 +192,6 @@ fn connectToServer(address: Address, username: []const u8, token: []const u8, co
         //std.time.sleep(std.time.ns_per_ms * 50);
     //}
 
-    _ = username;
-    _ = token;
     _ = packet_callback;
 }
 
