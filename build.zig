@@ -22,18 +22,20 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    //const enet = b.dependency("enet", .{
-        //.target = target,
-        //.optimize = optimize,
-    //});
+    // check what libs we need to link on windows, prob win sockets and some time dll
+
+    const enet = b.dependency("enet", .{
+        .target = target,
+        .optimize = optimize,
+    });
 
     const flags = &.{"-fno-sanitize=undefined"};
 
     exe.linkLibC();
-    exe.addIncludePath(b.path("enet/include"));
+    exe.addIncludePath(enet.path("enet/include"));
 
     exe.addCSourceFiles(.{ 
-        .root = b.path("enet"),
+        .root = enet.path("enet"),
         .files = &.{
             "callbacks.c",
             "compress.c",

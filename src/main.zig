@@ -1,7 +1,19 @@
 const std = @import("std");
 const c = @cImport({
-    @cInclude("enet.h");
+    @cInclude("enet/enet.h");
 });
+
+
+// outdated, just for refrence
+// SendPacket IDA (Pseudocode)
+// sub_1400132E0(v36, "action|quit_to_exit", 0x13ui64);
+// v20 = sub_1400E1D20(v19);
+// 0x41C620 -->sub_14041C620(3i64, v36, *(_QWORD *)(*(_QWORD *)(v20 + 3784) + 168i64));```
+
+// LogToConsole IDA (Pseudocode)<br />
+
+// v42 = "Located `wserver``, connecting...``";
+// 0x37DCD0 -->  sub_14037DCD0(v42); (v42 -> fmt --> aka the msg to send)
 
 // that serverdata.php sounds dumb but mb there is we send our token it will return user data and stuff and real server address with ip
 
@@ -133,10 +145,21 @@ fn connectToServer(address: Address, username: []const u8, token: []const u8, co
                     }
                     if (event.packet.*.data[0] == 1) {
 
-                    _ = username;
+//data(66): action|log
+//msg|Fail to login. Please try again in 30 seconds.
+//packet
+//type: 3
+//data(23): action|logon_fail
+
+
+                    //_ = username;
                     // token has some shit storred inside it idk how to access it
-                    var buf: [1024]u8 = undefined;
-                    const packet = try std.fmt.bufPrint(&buf, "\x02\x00\x00\x00protocol|210\nltoken|{s}\nplatformID|0,1,1\x00", .{token});
+                    //var buf: [1024]u8 = undefined;
+                    _ = token;
+                    _ = username;
+                    const packet = "\x02\x00\x00\x00" ++ @embedFile("./packet.txt");
+                    std.debug.print("out: \n{s}\n", .{packet});
+                    //const packet = try std.fmt.bufPrint(&buf, "\x02\x00\x00\x00protocol|210\nltoken|{s}\nplatformID|0,1,1\x00", .{token});
 
                     const enet_paket = c.enet_packet_create(null, packet.len, 1);
                     @memcpy(enet_paket.*.data[0..packet.len], packet);
