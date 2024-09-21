@@ -19,6 +19,13 @@ const c = @cImport({
 
 // what todo here if user is in linux how to add popup
 // https://login.growtopiagame.com/google/redirect?token=S0tfHyJ3sko6UGB4NE1KrjOg05BAErT2GpSXH%2BNpVw1RD05RLUPOf4Rjf5InkDFBL916gdTy2550hSpjpz0hEHpvpRcl%2FCSYD3JwiKhje%2B%2BNuqwANYG%2B8ny2dvUdo5ijoe2x8YJw4W0NUKzvx3ZDSBwufm92Tan99tarM4t8tdrMu8c6wLdyQcNmCunVagh7dbI2Uzprka5FS1%2BCkAyvnnDw0KPsJ6E3BX3YXXkH03PahMh2nBvIz26DMUvEergUivGTC4%2FCOLE1z6ecQ5jfTaOYq9RRdmRMoAmlFEBIKJ13IFD7E8ohztEPOK%2Bbi7AWgAsIIE4k84P1ZBPs75k9xSzTbzqkI0yqMyz6HhSlJqfvNBHDQqWqP6Ljpum2MPMSGrs%2FnKXe6hZ8PEwYm7z5i41DZ%2B%2F38GiAz5oa9McLR2faV30NUJO6dFyMwnQdZVL%2F
+//
+//got a packet(3):
+//action|log
+//msg|Fail to login. Please try again in 30 seconds.
+//
+//got a packet(3):
+//action|logon_fail
 
 const Arguments = struct {
     username: []const u8,
@@ -30,79 +37,72 @@ const Address = struct {
     port: u16,
 };
 
-fn on_packet(packet: c.ENetPacket) !void {
-    _ = packet;
+
+fn on_packet(allocator: std.mem.Allocator, packet: Packet, sender: PacketSender) !void {
+    std.debug.print("got a packet({d}):\n{s}\n", .{packet.type, packet.data});
+    if (packet.type == 1) {
+        // we do not need an allocator just make send_packet function
+        try sender.send(allocator, 2, @embedFile("./packet.txt"), .{});
+    }
 }
 
 pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+
+    const allocator = gpa.allocator();
+
     if (readArguments()) |args| {
         const address = try getAddress();
         // add colors and stuff make it fun
+        _ = args;
         std.debug.print("Got server address: {s}:{d}\n", .{address.host, address.port});
-        try connectToServer(address, args.username, args.token, on_packet);
+        try connectToServer(allocator, address, on_packet);
     }
-
-    //if (readArguments()) |args| {
-        //std.debug.print("{s}\n", .{args.username});
-        //std.debug.print("{s}\n", .{args.token});
-    //}
-    
-
-    //if (c.enet_initialize() != 0) {
-        //return error.ENetInitialize;
-    //}
-    //defer c.enet_deinitialize();
-
-    //const client = c.enet_host_create(null, 1, 2, 0, 0);
-    //if (client == null) {
-        //return error.ENetHostCreate;
-    //}
-
-    //var address: c.ENetAddress = undefined;
-    //client.*.usingNewPacket = 1;
-    //client.*.checksum = c.enet_crc32;
-
-    //if (c.enet_host_compress_with_range_coder(client) != 0) {
-        //return error.ENetAddressCompress;
-    //}
-
-    //if (c.enet_address_set_host(&address, ip) != 0) {
-        //return error.ENetAddressSetHost;
-    //}
-    //address.port = port;
-
-    //const peer = c.enet_host_connect(client, &address, 2, 0);
-    //if (peer == null) {
-        //return error.ENetHostConnect;
-    //}
-
-    //var event: c.ENetEvent = undefined;
-    //while (true) {
-        //while (c.enet_host_service(client, &event, 0) > 0) {
-            //switch (event.type) {
-                //c.ENET_EVENT_TYPE_CONNECT => {
-                    //std.debug.print("connected\n", .{});
-                //},
-                //c.ENET_EVENT_TYPE_DISCONNECT => {
-                    //std.debug.print("disconect\n", .{});
-                //},
-                //c.ENET_EVENT_TYPE_RECEIVE => {
-                    //std.debug.print("packet\n", .{});
-                    //if (event.packet.*.dataLength > 3) {
-                        //std.debug.print("type: {d}\n", .{event.packet.*.data[0]});
-                        //std.debug.print("data({d}): {s}\n", .{event.packet.*.dataLength, event.packet.*.data[0..event.packet.*.dataLength]});
-                    //}
-                //},
-                //else => {
-                    //std.debug.print("wtf is going on\n", .{});
-                //}
-            //}
-        //}
-        //std.time.sleep(std.time.ns_per_ms * 50);
-    //}
 }
 
-fn connectToServer(address: Address, username: []const u8, token: []const u8, comptime packet_callback: fn (packet: c.ENetPacket) anyerror!void) !void {
+
+const TranslatePacketError = error{
+    InvalidLength,
+};
+
+const PacketSender = struct {
+    peer: *c.ENetPeer,
+
+    fn send(self: PacketSender, allocator: std.mem.Allocator, comptime packet_type: u32, comptime fmt: []const u8, args: anytype) !void {
+        comptime var prefix: [4]u8 = undefined;
+        std.mem.writeInt(u32, &prefix, packet_type, .little);
+
+        // we do not need to double alloc just call enet_packet_create with std.fmt.count as size and then std.fmt.bufPrint
+        // in fact we do not need to pass here allocator at all cuz enet uses it behind the scenes
+        const packet = try std.fmt.allocPrint(allocator, prefix ++ fmt, args);
+        defer allocator.free(packet);
+
+        const enet_paket = c.enet_packet_create(null, packet.len, 1);
+        errdefer c.enet_packet_destroy(enet_paket);
+
+        @memcpy(enet_paket.*.data[0..packet.len], packet);
+
+        if (c.enet_peer_send(self.peer, 0, enet_paket) != 0) {
+            return error.ENetPeerSend;
+        }
+    }
+};
+
+const Packet = struct {
+    type: u32, // make an enum on types
+    data: []const u8,
+};
+
+fn translatePacket(raw_packet: []const u8) TranslatePacketError!Packet {
+    if (raw_packet.len < 4) return TranslatePacketError.InvalidLength;
+    return .{
+        .type = std.mem.readInt(u32, raw_packet[0..4], .little),
+        .data = raw_packet[4..], // data itself should be translated too.
+    };
+}
+
+fn connectToServer(allocator: std.mem.Allocator, address: Address, comptime packet_callback: fn (allocator: std.mem.Allocator, packet: Packet, sender: PacketSender) anyerror!void) !void {
     if (c.enet_initialize() != 0) {
         return error.EnetInitialize;
     }
@@ -131,91 +131,42 @@ fn connectToServer(address: Address, username: []const u8, token: []const u8, co
         return error.ENetHostConnect;
     }
 
+    const sender: PacketSender = .{
+        .peer = peer,
+    };
+
     var event: c.ENetEvent = undefined;
-    while (true) {
+    loop: while (true) {
         while (c.enet_host_service(client, &event, 0) > 0) {
             switch (event.type) {
                 c.ENET_EVENT_TYPE_CONNECT => {
                 },
                 c.ENET_EVENT_TYPE_RECEIVE => {
-                    std.debug.print("packet\n", .{});
-                    if (event.packet.*.dataLength > 3) {
-                        std.debug.print("type: {d}\n", .{event.packet.*.data[0]});
-                        std.debug.print("data({d}): {s}\n", .{event.packet.*.dataLength, event.packet.*.data[0..event.packet.*.dataLength]});
-                    }
-                    if (event.packet.*.data[0] == 1) {
+                    // i have no i idea who collects memory and what allocs it
+                    const packet = translatePacket(event.packet.*.data[0..event.packet.*.dataLength]) catch |err| switch (err) {
+                        TranslatePacketError.InvalidLength => {
+                            std.debug.print("got packet with invalid length: {d}\n", .{event.packet.*.dataLength});
+                            break;
+                        },
+                        else => return err,
+                    };
 
-//data(66): action|log
-//msg|Fail to login. Please try again in 30 seconds.
-//packet
-//type: 3
-//data(23): action|logon_fail
+                    try packet_callback(allocator, packet, sender);
+                    
 
-
-                    //_ = username;
-                    // token has some shit storred inside it idk how to access it
-                    //var buf: [1024]u8 = undefined;
-                    _ = token;
-                    _ = username;
-                    const packet = "\x02\x00\x00\x00" ++ @embedFile("./packet.txt");
-                    std.debug.print("out: \n{s}\n", .{packet});
-                    //const packet = try std.fmt.bufPrint(&buf, "\x02\x00\x00\x00protocol|210\nltoken|{s}\nplatformID|0,1,1\x00", .{token});
-
-                    const enet_paket = c.enet_packet_create(null, packet.len, 1);
-                    @memcpy(enet_paket.*.data[0..packet.len], packet);
-
-                    // can error 
-                    _ = c.enet_peer_send(peer, 0, enet_paket);
-                        //var buf: [4096]u8 = undefined;
-                        // dont commit this is sensitive
-
-                        //std.debug.print("out: {s}\n", .{packet});
-
-                        //const enet_paket = c.enet_packet_create(null, packet.len, 1);
-                        //@memcpy(enet_paket.*.data[0..packet.len], packet);
-
-                        // can error 
-                        //_ = c.enet_peer_send(peer, 0, enet_paket);
-
-                    }
                 },
                 c.ENET_EVENT_TYPE_DISCONNECT => {
-                    std.debug.print("disconnect\n", .{});
+                    std.debug.print("disconnect\n", .{}); // add disconect reason or just return error.Disconected
+                    break :loop;
                 },
                 else => {
                     std.debug.print("unknown packet ev: {d}\n", .{event.type});
                 }
             }
         }
-        // can we sleep till we get an event
+        // can we sleep till we get an event?
         std.time.sleep(std.time.ns_per_ms * 50);
     }
-
-    //while (true) {
-        //while (c.enet_host_service(client, &event, 0) > 0) {
-            //switch (event.type) {
-                //c.ENET_EVENT_TYPE_CONNECT => {
-                    //std.debug.print("connected\n", .{});
-                //},
-                //c.ENET_EVENT_TYPE_DISCONNECT => {
-                    //std.debug.print("disconect\n", .{});
-                //},
-                //c.ENET_EVENT_TYPE_RECEIVE => {
-                    //std.debug.print("packet\n", .{});
-                    //if (event.packet.*.dataLength > 3) {
-                        //std.debug.print("type: {d}\n", .{event.packet.*.data[0]});
-                        //std.debug.print("data({d}): {s}\n", .{event.packet.*.dataLength, event.packet.*.data[0..event.packet.*.dataLength]});
-                    //}
-                //},
-                //else => {
-                    //std.debug.print("wtf is going on\n", .{});
-                //}
-            //}
-        //}
-        //std.time.sleep(std.time.ns_per_ms * 50);
-    //}
-
-    _ = packet_callback;
 }
 
 fn readArguments() ?Arguments {
@@ -251,9 +202,6 @@ fn getAddress() !Address {
     // idk how to get the correct port
     return .{
         .host = "213.179.209.168",
-        .port = 17176,
+        .port = 17176, // this is good port
     };
-}
-
-test "simple test" {
 }
