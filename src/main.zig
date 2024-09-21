@@ -3,7 +3,6 @@ const c = @cImport({
     @cInclude("enet/enet.h");
 });
 
-
 // outdated, just for refrence
 // SendPacket IDA (Pseudocode)
 // sub_1400132E0(v36, "action|quit_to_exit", 0x13ui64);
@@ -37,12 +36,17 @@ const Address = struct {
     port: u16,
 };
 
+const Packet = struct {
+    type: u32, // make an enum on types
+    data: []const u8,
+};
 
 fn on_packet(allocator: std.mem.Allocator, packet: Packet, sender: PacketSender) !void {
+    _ = allocator; // just make a lambda so we would not need to pass these stuff if not possible use context and comptime
+
     std.debug.print("got a packet({d}):\n{s}\n", .{packet.type, packet.data});
     if (packet.type == 1) {
-        // we do not need an allocator just make send_packet function
-        try sender.send(allocator, 2, @embedFile("./packet.txt"), .{});
+        try sender.send(2, @embedFile("./packet.txt"), .{});
     }
 }
 
@@ -61,37 +65,37 @@ pub fn main() !void {
     }
 }
 
-
-const TranslatePacketError = error{
-    InvalidLength,
-};
-
 const PacketSender = struct {
     peer: *c.ENetPeer,
 
-    fn send(self: PacketSender, allocator: std.mem.Allocator, comptime packet_type: u32, comptime fmt: []const u8, args: anytype) !void {
+    const SendError = error {
+        ENetPacketCreate,
+        ENetPeerSend,
+    };
+
+    fn send(self: PacketSender, comptime packet_type: u32, comptime fmt: []const u8, args: anytype) SendError!void {
         comptime var prefix: [4]u8 = undefined;
         std.mem.writeInt(u32, &prefix, packet_type, .little);
 
-        // we do not need to double alloc just call enet_packet_create with std.fmt.count as size and then std.fmt.bufPrint
-        // in fact we do not need to pass here allocator at all cuz enet uses it behind the scenes
-        const packet = try std.fmt.allocPrint(allocator, prefix ++ fmt, args);
-        defer allocator.free(packet);
-
-        const enet_paket = c.enet_packet_create(null, packet.len, 1);
+        const enet_paket = c.enet_packet_create(null, std.fmt.count(prefix ++ fmt, args), 1);
+        if (enet_paket == null) {
+            return SendError.ENetPacketCreate;
+        }
         errdefer c.enet_packet_destroy(enet_paket);
 
-        @memcpy(enet_paket.*.data[0..packet.len], packet);
+        _ = std.fmt.bufPrint(enet_paket.*.data[0..enet_paket.*.dataLength], prefix ++ fmt, args) catch unreachable;
 
         if (c.enet_peer_send(self.peer, 0, enet_paket) != 0) {
-            return error.ENetPeerSend;
+            return SendError.ENetPeerSend;
         }
+
+        //std.debug.print("type: {d}\n", .{enet_paket.*.data[0..4]});
+        //std.debug.print("data: {s}\n", .{enet_paket.*.data[4..enet_paket.*.dataLength]});
     }
 };
 
-const Packet = struct {
-    type: u32, // make an enum on types
-    data: []const u8,
+const TranslatePacketError = error{
+    InvalidLength,
 };
 
 fn translatePacket(raw_packet: []const u8) TranslatePacketError!Packet {
