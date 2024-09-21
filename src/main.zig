@@ -44,7 +44,7 @@ const Packet = struct {
 fn on_packet(allocator: std.mem.Allocator, packet: Packet, sender: PacketSender) !void {
     _ = allocator; // just make a lambda so we would not need to pass these stuff if not possible use context and comptime
 
-    std.debug.print("got a packet({d}):\n{s}\n", .{packet.type, packet.data});
+    std.debug.print("got a packet({d}):\n{s}\n", .{ packet.type, packet.data });
     if (packet.type == 1) {
         try sender.send(2, @embedFile("./packet.txt"), .{});
     }
@@ -60,7 +60,7 @@ pub fn main() !void {
         const address = try getAddress();
         // add colors and stuff make it fun
         _ = args;
-        std.debug.print("Got server address: {s}:{d}\n", .{address.host, address.port});
+        std.debug.print("Got server address: {s}:{d}\n", .{ address.host, address.port });
         try connectToServer(allocator, address, on_packet);
     }
 }
@@ -68,7 +68,7 @@ pub fn main() !void {
 const PacketSender = struct {
     peer: *c.ENetPeer,
 
-    const SendError = error {
+    const SendError = error{
         ENetPacketCreate,
         ENetPeerSend,
     };
@@ -143,8 +143,7 @@ fn connectToServer(allocator: std.mem.Allocator, address: Address, comptime pack
     loop: while (true) {
         while (c.enet_host_service(client, &event, 0) > 0) {
             switch (event.type) {
-                c.ENET_EVENT_TYPE_CONNECT => {
-                },
+                c.ENET_EVENT_TYPE_CONNECT => {},
                 c.ENET_EVENT_TYPE_RECEIVE => {
                     // i have no i idea who collects memory and what allocs it
                     const packet = translatePacket(event.packet.*.data[0..event.packet.*.dataLength]) catch |err| switch (err) {
@@ -156,8 +155,6 @@ fn connectToServer(allocator: std.mem.Allocator, address: Address, comptime pack
                     };
 
                     try packet_callback(allocator, packet, sender);
-                    
-
                 },
                 c.ENET_EVENT_TYPE_DISCONNECT => {
                     std.debug.print("disconnect\n", .{}); // add disconect reason or just return error.Disconected
@@ -165,7 +162,7 @@ fn connectToServer(allocator: std.mem.Allocator, address: Address, comptime pack
                 },
                 else => {
                     std.debug.print("unknown packet ev: {d}\n", .{event.type});
-                }
+                },
             }
         }
         // can we sleep till we get an event?
