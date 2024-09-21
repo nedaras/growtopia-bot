@@ -80,7 +80,7 @@ const PacketSender = struct {
         // now enet allocs but there is c.ENET_PACKET_FLAG_NO_ALLOCATE flag we can use that
         const enet_paket = c.enet_packet_create(null, std.fmt.count(prefix ++ fmt, args), c.ENET_PACKET_FLAG_RELIABLE);
         if (enet_paket == null) {
-            return SendError.ENetPacketCreate;
+            return SendError.ENetPacketCreate; // we can use OutOfMemory
         }
         errdefer c.enet_packet_destroy(enet_paket);
 
@@ -108,45 +108,48 @@ fn translatePacket(raw_packet: []const u8) TranslatePacketError!Packet {
 }
 
 fn connectToServer(allocator: std.mem.Allocator, address: Address, comptime packet_callback: fn (allocator: std.mem.Allocator, packet: Packet, sender: PacketSender) anyerror!void) !void {
-    // use this if c allocator is used
-    //if (c.enet_initialize() != 0) {
-    //return error.EnetInitialize;
-    //}
-    //defer c.enet_deinitialize();
-
-    const Impl = struct {
-        var base_allocator: std.mem.Allocator = undefined;
-
-        fn malloc(size: usize) callconv(.C) ?*anyopaque {
-            const header = @sizeOf(usize);
-            const alignment = @alignOf(std.c.max_align_t);
-
-            const mem = base_allocator.alignedAlloc(u8, alignment, size + header) catch return null;
-            mem[0..header].* = @bitCast(size);
-
-            return mem.ptr + header;
+    if (allocator.vtable == std.heap.c_allocator.vtable) {
+        if (c.enet_initialize() != 0) {
+            return error.EnetInitialize;
         }
+    } else {
+        const Impl = struct {
+            var base_allocator: std.mem.Allocator = undefined;
 
-        fn free(memory: ?*anyopaque) callconv(.C) void {
-            const ptr = memory orelse return;
+            fn malloc(size: usize) callconv(.C) ?*anyopaque {
+                const header = @sizeOf(usize);
+                const alignment = @alignOf(std.c.max_align_t);
 
-            const header = @sizeOf(usize);
-            const alignment = @alignOf(std.c.max_align_t);
+                const mem = base_allocator.alignedAlloc(u8, alignment, size + header) catch return null;
+                mem[0..header].* = @bitCast(size);
 
-            // this is unsafe if enet allocs data not using our allocator and frees it using ours
-            const original_ptr: *anyopaque = @ptrFromInt(@intFromPtr(ptr) - header);
-            const mem: [*]align(alignment) u8 = @ptrCast(@alignCast(original_ptr));
+                return mem.ptr + header;
+            }
 
-            const size: usize = @bitCast(mem[0..header].*);
-            base_allocator.free(mem[0 .. size + header]);
+            fn free(memory: ?*anyopaque) callconv(.C) void {
+                const ptr = memory orelse return;
+
+                const header = @sizeOf(usize);
+                const alignment = @alignOf(std.c.max_align_t);
+
+                // this is unsafe if enet allocs data not using our allocator and frees it using ours
+                const original_ptr: *anyopaque = @ptrFromInt(@intFromPtr(ptr) - header);
+                const mem: [*]align(alignment) u8 = @ptrCast(@alignCast(original_ptr));
+
+                const size: usize = @bitCast(mem[0..header].*);
+                base_allocator.free(mem[0 .. size + header]);
+            }
+        };
+        // is it safe on multithreaded enviroments? we should add mutixes here just for safety base_allocator is a static variable
+        Impl.base_allocator = allocator;
+
+        if (c.enet_initialize_with_callbacks(c.ENET_VERSION, &.{
+            .malloc = Impl.malloc,
+            .free = Impl.free,
+            .no_memory = null, // we do not need it
+        }) != 0) {
+            return error.EnetInitialize;
         }
-    };
-    // is it safe on multithreaded enviroments? we should add mutixes here just for safety
-    Impl.base_allocator = allocator;
-
-    // what todo with the no_memory idk
-    if (c.enet_initialize_with_callbacks(c.ENET_VERSION, &.{ .malloc = Impl.malloc, .free = Impl.free }) != 0) {
-        return error.EnetInitialize;
     }
     defer c.enet_deinitialize();
 
@@ -185,6 +188,7 @@ fn connectToServer(allocator: std.mem.Allocator, address: Address, comptime pack
                 c.ENET_EVENT_TYPE_CONNECT => {},
                 c.ENET_EVENT_TYPE_RECEIVE => {
                     // i have no i idea who collects memory and what allocs it
+                    // possible we need to free the packet or event
                     const packet = translatePacket(event.packet.*.data[0..event.packet.*.dataLength]) catch |err| switch (err) {
                         TranslatePacketError.InvalidLength => {
                             std.debug.print("got packet with invalid length: {d}\n", .{event.packet.*.dataLength});
@@ -192,7 +196,6 @@ fn connectToServer(allocator: std.mem.Allocator, address: Address, comptime pack
                         },
                         else => return err,
                     };
-
                     try packet_callback(allocator, packet, sender);
                 },
                 c.ENET_EVENT_TYPE_DISCONNECT => {
