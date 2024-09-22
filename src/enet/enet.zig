@@ -96,6 +96,8 @@ pub fn connectToServer(allocator: Allocator, address: Address) !Connection {
             var base_allocator: Allocator = undefined;
 
             fn malloc(size: usize) callconv(.C) ?*anyopaque {
+                @setRuntimeSafety(false);
+
                 const header = @sizeOf(usize);
                 const alignment = @alignOf(std.c.max_align_t);
 
@@ -106,6 +108,8 @@ pub fn connectToServer(allocator: Allocator, address: Address) !Connection {
             }
 
             fn free(memory: ?*anyopaque) callconv(.C) void {
+                @setRuntimeSafety(false);
+
                 const ptr = memory orelse return;
 
                 const header = @sizeOf(usize);
