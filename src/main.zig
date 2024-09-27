@@ -1,29 +1,6 @@
 const std = @import("std");
 const enet = @import("enet/enet.zig");
 
-// outdated, just for refrence
-// SendPacket IDA (Pseudocode)
-// sub_1400132E0(v36, "action|quit_to_exit", 0x13ui64);
-// v20 = sub_1400E1D20(v19);
-// 0x41C620 -->sub_14041C620(3i64, v36, *(_QWORD *)(*(_QWORD *)(v20 + 3784) + 168i64));```
-
-// LogToConsole IDA (Pseudocode)<br />
-
-// v42 = "Located `wserver``, connecting...``";
-// 0x37DCD0 -->  sub_14037DCD0(v42); (v42 -> fmt --> aka the msg to send)
-
-// that serverdata.php sounds dumb but mb there is we send our token it will return user data and stuff and real server address with ip
-
-// what todo here if user is in linux how to add popup
-// https://login.growtopiagame.com/google/redirect?token=S0tfHyJ3sko6UGB4NE1KrjOg05BAErT2GpSXH%2BNpVw1RD05RLUPOf4Rjf5InkDFBL916gdTy2550hSpjpz0hEHpvpRcl%2FCSYD3JwiKhje%2B%2BNuqwANYG%2B8ny2dvUdo5ijoe2x8YJw4W0NUKzvx3ZDSBwufm92Tan99tarM4t8tdrMu8c6wLdyQcNmCunVagh7dbI2Uzprka5FS1%2BCkAyvnnDw0KPsJ6E3BX3YXXkH03PahMh2nBvIz26DMUvEergUivGTC4%2FCOLE1z6ecQ5jfTaOYq9RRdmRMoAmlFEBIKJ13IFD7E8ohztEPOK%2Bbi7AWgAsIIE4k84P1ZBPs75k9xSzTbzqkI0yqMyz6HhSlJqfvNBHDQqWqP6Ljpum2MPMSGrs%2FnKXe6hZ8PEwYm7z5i41DZ%2B%2F38GiAz5oa9McLR2faV30NUJO6dFyMwnQdZVL%2F
-//
-//got a packet(3):
-//action|log
-//msg|Fail to login. Please try again in 30 seconds.
-//
-//got a packet(3):
-//action|logon_fail
-
 const Arguments = struct {
     username: []const u8,
     token: []const u8,
@@ -39,23 +16,23 @@ pub fn main() !void {
 
     const allocator = gpa.allocator();
 
-    const args = readArguments() orelse return;
-    _ = args;
+    //const args = readArguments() orelse return;
+    //_ = args;
 
-    const address = try getAddress();
-    std.debug.print("Got server address: {s}:{d}\n", .{ address.host, address.port });
+    try getAddress(allocator);
+    //std.debug.print("Got server address: {s}:{d}\n", .{ address.host, address.port });
 
-    var connection = try enet.connectToServer(allocator, address);
-    defer connection.deinit();
+    //var connection = try enet.connectToServer(allocator, address);
+    //defer connection.deinit();
 
-    while (try connection.next()) |packet| {
-        std.debug.print("got a packet({d}):\n{s}\n", .{ packet.type, packet.data });
-        if (packet.type == 1) {
-            try connection.sendPacket(2, @embedFile("./packet.txt"), .{});
-        }
-    }
+    //while (try connection.next()) |packet| {
+    //std.debug.print("got a packet({d}):\n{s}\n", .{ packet.type, packet.data });
+    //if (packet.type == 1) {
+    //try connection.sendPacket(2, @embedFile("./packet.txt"), .{});
+    //}
+    //}
 
-    std.debug.print("disconnected\n", .{});
+    //std.debug.print("disconnected\n", .{});
 }
 
 fn readArguments() ?Arguments {
@@ -86,11 +63,32 @@ fn readArguments() ?Arguments {
     };
 }
 
-fn getAddress() !enet.Address {
-    // bad idk why: const url = "https://www.growtopiagame.com/growtopia/server_data.php"; // ip good port is not idk why
-    // idk how to get the correct port
-    return .{
-        .host = "213.179.209.168",
-        .port = 17176, // 17199 this is bad port, good -> 17176
-    };
+fn getAddress(allocator: std.mem.Allocator) !void { // i do not like how it allocated so many memory
+    var client = std.http.Client{ .allocator = allocator };
+    defer client.deinit();
+
+    var header_buffer: [512]u8 = undefined;
+    var response_buffer: [1024]u8 = undefined;
+
+    const uri = try std.Uri.parse("https://www.growtopia1.com/growtopia/server_data.php");
+    const body = "version=4.66&platform=0&protocol=210\r\n"; // built this from args
+
+    var request = try client.open(.POST, uri, .{
+        .server_header_buffer = &header_buffer,
+        .headers = .{ .user_agent = .{ .override = "UbiServices_SDK_2022.Release.9_PC64_ansi_static" }, .accept_encoding = .{ .override = "*/*" }, .content_type = .{ .override = "application/x-www-form-urlencoded" } },
+        .keep_alive = false,
+    });
+    defer request.deinit();
+
+    request.transfer_encoding = .{ .content_length = body.len };
+
+    try request.send();
+
+    try request.writeAll(body);
+
+    try request.finish();
+    try request.wait();
+
+    const len = try request.readAll(&response_buffer);
+    std.debug.print("response: \n{s}\n", .{response_buffer[0..len]});
 }
