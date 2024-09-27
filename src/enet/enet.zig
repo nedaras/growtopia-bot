@@ -31,11 +31,23 @@ pub const Connection = struct {
                     if (slice.len < 4) return error.InvalidLength;
 
                     return .{
-                        .type = mem.readInt(u32, slice[0..4], .little),
+                        .type = mem.readInt(u32, slice[0..4], .big),
                         .data = slice[4..],
                     };
                 },
                 else => return null,
+            };
+            try std.Thread.yield();
+        }
+    }
+
+    pub fn wait(connection: Connection) !void {
+        var event: c.ENetEvent = undefined;
+        while (true) {
+            while (c.enet_host_service(connection.host, &event, 0) > 0) switch (event.type) {
+                c.ENET_EVENT_TYPE_CONNECT => return,
+                c.ENET_EVENT_TYPE_DISCONNECT => return error.Disconnected,
+                else => @panic("got wrong event type"),
             };
             try std.Thread.yield();
         }
@@ -53,7 +65,7 @@ pub const Connection = struct {
 
     pub fn sendPacket(connection: Connection, comptime packet_type: u32, comptime fmt: []const u8, args: anytype) SendError!void {
         comptime var prefix: [4]u8 = undefined;
-        mem.writeInt(u32, &prefix, packet_type, .little);
+        mem.writeInt(u32, &prefix, packet_type, .big);
 
         const raw_packet = prefix ++ fmt;
         const raw_packet_len = std.fmt.count(raw_packet, args);

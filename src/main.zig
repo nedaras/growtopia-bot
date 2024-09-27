@@ -2,7 +2,6 @@ const std = @import("std");
 const enet = @import("enet/enet.zig");
 
 const Arguments = struct {
-    username: []const u8,
     token: []const u8,
 };
 
@@ -11,59 +10,64 @@ pub fn main() !void {
     // ReleaseSafe -> c_allocator or page_allocator idk what even is page_allocator
     // ReleaseFast, ReleaseSmall -> c_allocator,
 
-    var gpa = std.heap.GeneralPurposeAllocator(.{ .verbose_log = true }){};
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
 
     const allocator = gpa.allocator();
 
-    //const args = readArguments() orelse return;
-    //_ = args;
+    const args = readArguments() orelse return;
 
     const server_data = try getServerData(allocator);
-    std.debug.print("server: {s}\n", .{server_data.server()});
-    std.debug.print("login_url: {s}\n", .{server_data.loginUrl()});
-    std.debug.print("port: {d}\n", .{server_data.port});
+    std.debug.print("got server address: {s}:{d}\n", .{ server_data.server(), server_data.port });
+
+    var connection = try enet.connectToServer(allocator, .{
+        .host = server_data.server(),
+        .port = server_data.port,
+    });
+    defer connection.deinit();
+
+    try connection.wait();
+    std.debug.print("accepted\n", .{}); // not being accepted sadly
+
+    // there has to be sendPacket and sendPacketRaw
+
+    // add comptime function to encode not raw packet
+    try connection.sendPacket(2, "protocol|210\nltoken|{s}\nplatformID|0,1,1", .{args.token});
 
     //try getAddress(allocator);
     //std.debug.print("Got server address: {s}:{d}\n", .{ address.host, address.port });
 
     //var connection = try enet.connectToServer(allocator, address);
-    //defer connection.deinit();
 
-    //while (try connection.next()) |packet| {
-    //std.debug.print("got a packet({d}):\n{s}\n", .{ packet.type, packet.data });
-    //if (packet.type == 1) {
-    //try connection.sendPacket(2, @embedFile("./packet.txt"), .{});
-    //}
+    // we're getting the var list nice, how to decode it?
+    while (try connection.next()) |packet| {
+        std.debug.print("got a packet({d}):\n{s}\n", .{ packet.type, packet.data });
+        //if (packet.type == 1) {
+        //try connection.sendPacket(2, @embedFile("./packet.txt"), .{});
+    }
     //}
 
-    //std.debug.print("disconnected\n", .{});
+    std.debug.print("disconnected\n", .{});
 }
 
 fn readArguments() ?Arguments {
     var iter = std.process.ArgIterator.init();
     defer iter.deinit();
 
-    var username: ?[]const u8 = null;
     var token: ?[]const u8 = null;
 
     while (iter.next()) |arg| {
-        if (std.mem.eql(u8, arg, "-username")) {
-            username = iter.next();
-        }
-
         if (std.mem.eql(u8, arg, "-token")) {
             token = iter.next();
         }
     }
 
-    if (username == null or token == null) {
-        std.debug.print("sigma\n", .{});
+    if (token == null) {
+        std.debug.print("wrong usage\n", .{});
         return null;
     }
 
     return .{
-        .username = username.?,
         .token = token.?,
     };
 }
@@ -77,12 +81,12 @@ const ServerData = struct {
 
     port: u16,
 
-    fn server(server_data: *const ServerData) []const u8 {
-        return server_data.server_buf[0..server_data.server_buf_len];
+    inline fn server(server_data: *const ServerData) [:0]const u8 {
+        return server_data.server_buf[0..server_data.server_buf_len :0];
     }
 
-    fn loginUrl(server_data: *const ServerData) []const u8 {
-        return server_data.login_url_buf[0..server_data.login_url_len];
+    inline fn loginUrl(server_data: *const ServerData) [:0]const u8 {
+        return server_data.login_url_buf[0..server_data.login_url_len :0];
     }
 };
 
@@ -138,21 +142,23 @@ fn getServerData(allocator: std.mem.Allocator) !ServerData { // i do not like ho
         if (std.mem.eql(u8, val, "server")) {
             const server = iter.next() orelse continue;
 
-            if (server.len > server_data.server_buf.len) {
+            if (server.len - 1 > server_data.server_buf.len) {
                 return error.TooBig;
             }
 
             @memcpy(server_data.server_buf[0..server.len], server);
+            server_data.server_buf[server.len] = '\x00';
             server_data.server_buf_len = @intCast(server.len);
         }
         if (std.mem.eql(u8, val, "loginurl")) {
             const login_url = iter.next() orelse continue;
 
-            if (login_url.len > server_data.login_url_buf.len) {
+            if (login_url.len - 1 > server_data.login_url_buf.len) {
                 return error.TooBig;
             }
 
             @memcpy(server_data.login_url_buf[0..login_url.len], login_url);
+            server_data.login_url_buf[login_url.len] = '\x00';
             server_data.login_url_len = @intCast(login_url.len);
         }
     }
