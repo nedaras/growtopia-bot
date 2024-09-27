@@ -5,6 +5,26 @@ const Arguments = struct {
     token: []const u8,
 };
 
+const game_packet_t = extern struct { // why floats are not allwed????
+    type: u8,
+    object_type: u8,
+    byte1: u8,
+    byte2: u8,
+    netid: i32,
+    int1: i32,
+    flags: u32,
+    float1: u32, // f32
+    int2: i32,
+    vec1_x: u32, // f32
+    vec1_y: u32, // f32
+    vec2_x: u32, // f32
+    vec2_y: u32, // f32
+    float2: u32, // f32
+    vec3_x: i32,
+    vec3_y: i32,
+    extra_data_size: u32,
+};
+
 pub fn main() !void {
     // Debug -> gpa,
     // ReleaseSafe -> c_allocator or page_allocator idk what even is page_allocator
@@ -15,10 +35,17 @@ pub fn main() !void {
 
     const allocator = gpa.allocator();
 
-    const args = readArguments() orelse return;
+    //const args = readArguments() orelse return;
 
     const server_data = try getServerData(allocator);
     std.debug.print("got server address: {s}:{d}\n", .{ server_data.server(), server_data.port });
+
+    std.debug.print("give token:\n", .{});
+    var buf: [512]u8 = undefined;
+    const token = std.io.getStdIn().reader().readUntilDelimiter(&buf, '\n') catch {
+        std.debug.print("token too bg no?\n", .{});
+        return;
+    };
 
     var connection = try enet.connectToServer(allocator, .{
         .host = server_data.server(),
@@ -27,25 +54,84 @@ pub fn main() !void {
     defer connection.deinit();
 
     try connection.wait();
-    std.debug.print("accepted\n", .{}); // not being accepted sadly
 
-    // there has to be sendPacket and sendPacketRaw
+    while (try connection.next()) |packet| switch (packet.type) {
+        1 => {
+            try connection.sendPacket(2, "protocol|210\nltoken|{s}\nplatformID|0,1,1\n", .{token});
+        },
+        4 => {
+            // make code better and find out what todo with floats
+            if (packet.data.len == 0) {
+                connection.close();
+                continue;
+            }
 
-    // add comptime function to encode not raw packet
-    try connection.sendPacket(2, "protocol|210\nltoken|{s}\nplatformID|0,1,1", .{args.token});
+            var stream = std.io.fixedBufferStream(packet.data);
+            const reader = stream.reader();
 
-    //try getAddress(allocator);
-    //std.debug.print("Got server address: {s}:{d}\n", .{ address.host, address.port });
+            const game_packet = try reader.readStructEndian(game_packet_t, .little);
+            switch (game_packet.type) {
+                1 => {
+                    if (game_packet.extra_data_size == 0) {
+                        connection.close();
+                        continue;
+                    }
 
-    //var connection = try enet.connectToServer(allocator, address);
+                    const variant_len = try reader.readByte();
+                    for (0..variant_len) |_| {
+                        const variant_i = try reader.readByte(); // prob read byte is not a thing we need to read 4 bytes min
+                        const variant_type = try reader.readByte();
 
-    // we're getting the var list nice, how to decode it?
-    while (try connection.next()) |packet| {
-        std.debug.print("got a packet({d}):\n{s}\n", .{ packet.type, packet.data });
-        //if (packet.type == 1) {
-        //try connection.sendPacket(2, @embedFile("./packet.txt"), .{});
-    }
-    //}
+                        _ = variant_i;
+                        switch (variant_type) { // dont forget endians with floats
+                            1 => { // float
+                                const val: f32 = @bitCast(try reader.readBytesNoEof(4));
+                                std.debug.print("[float]: {d}\n", .{val});
+                            },
+                            2 => { // string
+                                const len = try reader.readInt(u32, .little);
+                                const pos = try stream.getPos();
+                                const val = packet.data[pos .. pos + len];
+                                try stream.seekBy(len);
+
+                                std.debug.print("[string]: {s}\n", .{val});
+                            },
+                            3 => { // Vector2
+                                const val_x: f32 = @bitCast(try reader.readBytesNoEof(4));
+                                const val_y: f32 = @bitCast(try reader.readBytesNoEof(4));
+                                std.debug.print("[vec2]: ({d}, {d})\n", .{ val_x, val_y });
+                            },
+                            4 => { // Vecto3
+                                const val_x: f32 = @bitCast(try reader.readBytesNoEof(4));
+                                const val_y: f32 = @bitCast(try reader.readBytesNoEof(4));
+                                const val_z: f32 = @bitCast(try reader.readBytesNoEof(4));
+                                std.debug.print("[vec3]: ({d}, {d}, {d})\n", .{ val_x, val_y, val_z });
+                            },
+                            5 => { // u32
+                                const val = try reader.readInt(u32, .little);
+                                std.debug.print("[u32]: {d}\n", .{val});
+                            },
+                            9 => { // i32
+                                const val = try reader.readInt(i32, .little);
+                                std.debug.print("[i32]: {d}\n", .{val});
+                            },
+                            else => {
+                                std.debug.print("got unknown variant type: {d}\n", .{variant_type});
+                            },
+                        }
+                    }
+
+                    connection.close();
+                },
+                else => {
+                    std.debug.print("Unknown packet type: {d}\n", .{game_packet.type});
+                },
+            }
+        },
+        else => {
+            std.debug.print("Unknown packet with enet type: {d}\n", .{packet.type});
+        },
+    };
 
     std.debug.print("disconnected\n", .{});
 }
@@ -90,7 +176,9 @@ const ServerData = struct {
     }
 };
 
-fn getServerData(allocator: std.mem.Allocator) !ServerData { // i do not like how it allocated so many memory
+// if i would like and bother it would be nice to make everything use ass least allocations as possible,
+// atleast with enet that thing allocated too much it woud be such an improvment if we could reuse packet buffers
+fn getServerData(allocator: std.mem.Allocator) !ServerData {
     var client = std.http.Client{ .allocator = allocator };
     defer client.deinit();
 

@@ -20,18 +20,29 @@ pub const Connection = struct {
     host: *c.ENetHost,
     peer: *c.ENetPeer,
 
-    pub fn next(connection: Connection) !?Packet {
+    prev_packet: ?*c.ENetPacket = null,
+
+    pub fn next(connection: *Connection) !?Packet {
+        if (connection.prev_packet) |packet| {
+            c.enet_packet_destroy(packet);
+            connection.prev_packet = null;
+        }
+
         var event: c.ENetEvent = undefined;
         while (true) { // can we make it async io? it would be very nice to handle multiple connections without needing multiple threads
             while (c.enet_host_service(connection.host, &event, 0) > 0) switch (event.type) {
-                c.ENET_EVENT_TYPE_CONNECT => {},
+                c.ENET_EVENT_TYPE_CONNECT => {
+                    @panic("use connection.wait");
+                },
                 c.ENET_EVENT_TYPE_NONE => {},
                 c.ENET_EVENT_TYPE_RECEIVE => {
+                    defer connection.prev_packet = event.packet; // prob is a better way to clear packets
+
                     const slice = event.packet.*.data[0..event.packet.*.dataLength];
                     if (slice.len < 4) return error.InvalidLength;
 
                     return .{
-                        .type = mem.readInt(u32, slice[0..4], .big),
+                        .type = mem.readInt(u32, slice[0..4], .little),
                         .data = slice[4..],
                     };
                 },
@@ -53,7 +64,19 @@ pub const Connection = struct {
         }
     }
 
-    pub fn deinit(connection: Connection) void {
+    pub fn close(connection: *Connection) void {
+        if (connection.prev_packet) |packet| {
+            c.enet_packet_destroy(packet);
+            connection.prev_packet = null;
+        }
+        c.enet_peer_disconnect(connection.peer, 0);
+    }
+
+    pub fn deinit(connection: *Connection) void {
+        if (connection.prev_packet) |packet| {
+            c.enet_packet_destroy(packet);
+            connection.prev_packet = null;
+        }
         c.enet_host_destroy(connection.host);
         c.enet_deinitialize();
     }
@@ -65,7 +88,7 @@ pub const Connection = struct {
 
     pub fn sendPacket(connection: Connection, comptime packet_type: u32, comptime fmt: []const u8, args: anytype) SendError!void {
         comptime var prefix: [4]u8 = undefined;
-        mem.writeInt(u32, &prefix, packet_type, .big);
+        mem.writeInt(u32, &prefix, packet_type, .little);
 
         const raw_packet = prefix ++ fmt;
         const raw_packet_len = std.fmt.count(raw_packet, args);
@@ -80,6 +103,7 @@ pub const Connection = struct {
             if (c.enet_peer_send(connection.peer, 0, packet) != 0) {
                 return SendError.ENetPeerSend;
             }
+            //std.debug.print("out packet({d}):\n{s}\n", .{packet_type, packet.*.data[4..packet.*.dataLength - 4]});
 
             return;
         }
@@ -95,6 +119,7 @@ pub const Connection = struct {
         if (c.enet_peer_send(connection.peer, 0, packet) != 0) {
             return SendError.ENetPeerSend;
         }
+        //std.debug.print("out packet({d}):\n{s}\n", .{packet_type, packet.*.data[4..packet.*.dataLength - 4]});
     }
 };
 
