@@ -1,28 +1,9 @@
 const std = @import("std");
 const enet = @import("enet/enet.zig");
+const gt = @import("growtopia/growtopia.zig");
 
 const Arguments = struct {
     token: []const u8,
-};
-
-const game_packet_t = extern struct { // why floats are not allwed????
-    type: u8,
-    object_type: u8,
-    byte1: u8,
-    byte2: u8,
-    netid: i32,
-    int1: i32,
-    flags: u32,
-    float1: u32, // f32
-    int2: i32,
-    vec1_x: u32, // f32
-    vec1_y: u32, // f32
-    vec2_x: u32, // f32
-    vec2_y: u32, // f32
-    float2: u32, // f32
-    vec3_x: i32,
-    vec3_y: i32,
-    extra_data_size: u32,
 };
 
 pub fn main() !void {
@@ -60,80 +41,58 @@ pub fn main() !void {
             try connection.sendPacket(2, "protocol|210\nltoken|{s}\nplatformID|0,1,1\n", .{token});
         },
         4 => {
-            // make code better and find out what todo with floats
             if (packet.data.len == 0) {
                 connection.close();
                 continue;
             }
 
-            var stream = std.io.fixedBufferStream(packet.data);
-            const reader = stream.reader();
-
-            const game_packet = try reader.readStructEndian(game_packet_t, .little);
-            switch (game_packet.type) {
-                1 => {
-                    if (game_packet.extra_data_size == 0) {
-                        connection.close();
-                        continue;
-                    }
-
-                    const variant_len = try reader.readByte();
-                    for (0..variant_len) |_| {
-                        const variant_i = try reader.readByte(); // prob read byte is not a thing we need to read 4 bytes min
-                        const variant_type = try reader.readByte();
-
-                        _ = variant_i;
-                        switch (variant_type) { // dont forget endians with floats
-                            1 => { // float
-                                const val: f32 = @bitCast(try reader.readBytesNoEof(4));
-                                std.debug.print("[float]: {d}\n", .{val});
-                            },
-                            2 => { // string
-                                const len = try reader.readInt(u32, .little);
-                                const pos = try stream.getPos();
-                                const val = packet.data[pos .. pos + len];
-                                try stream.seekBy(len);
-
-                                std.debug.print("[string]: {s}\n", .{val});
-                            },
-                            3 => { // Vector2
-                                const val_x: f32 = @bitCast(try reader.readBytesNoEof(4));
-                                const val_y: f32 = @bitCast(try reader.readBytesNoEof(4));
-                                std.debug.print("[vec2]: ({d}, {d})\n", .{ val_x, val_y });
-                            },
-                            4 => { // Vecto3
-                                const val_x: f32 = @bitCast(try reader.readBytesNoEof(4));
-                                const val_y: f32 = @bitCast(try reader.readBytesNoEof(4));
-                                const val_z: f32 = @bitCast(try reader.readBytesNoEof(4));
-                                std.debug.print("[vec3]: ({d}, {d}, {d})\n", .{ val_x, val_y, val_z });
-                            },
-                            5 => { // u32
-                                const val = try reader.readInt(u32, .little);
-                                std.debug.print("[u32]: {d}\n", .{val});
-                            },
-                            9 => { // i32
-                                const val = try reader.readInt(i32, .little);
-                                std.debug.print("[i32]: {d}\n", .{val});
-                            },
-                            else => {
-                                std.debug.print("got unknown variant type: {d}\n", .{variant_type});
-                            },
-                        }
-                    }
-
-                    connection.close();
-                },
-                else => {
-                    std.debug.print("Unknown packet type: {d}\n", .{game_packet.type});
-                },
+            const game_packet = try gt.readGamePacket(packet.data);
+            if (game_packet != 1 or game_packet.var_list == null) {
+                connection.close();
+                continue;
             }
+
+            try handleVarLists(connection, game_packet.var_list.?);
+
+            //switch (game_packet.type) {
+            //1 => {
+            //var var_list = game_packet.var_list orelse {
+            //connection.close();
+            //continue;
+            //};
+
+            //var buffer: []1024 = undefined;
+            //const packet = handleVarLists(&buffer, var_list);
+
+            //var var_list = game_packet.var_list.?;
+            //while (try var_list.next()) |arg| switch (arg) {
+            //.f32 => |n|   std.debug.print("[f32]:  {d}\n", .{n}),
+            //.str => |str| std.debug.print("[str]:  {s}\n", .{str}),
+            //.vec2 => |n|  std.debug.print("[vec2]: ({d}, {d})\n", .{n.x, n.y}),
+            //.vec3 => |n|  std.debug.print("[vec3]: ({d}, {d}, {d})\n", .{n.x, n.y, n.z}),
+            //.u32 => |n|   std.debug.print("[u32]:  {d}\n", .{n}),
+            //.i32 => |n|   std.debug.print("[i32]:  {d}\n", .{n}),
+            //};
+            //connection.close();
+            //},
+            //else => {
+            //connection.close();
+            //std.debug.print("unknown game packet type\n", .{});
+            //},
+            //}
         },
         else => {
+            connection.close();
             std.debug.print("Unknown packet with enet type: {d}\n", .{packet.type});
         },
     };
 
     std.debug.print("disconnected\n", .{});
+}
+
+fn handleVarLists(connection: *enet.Connection, var_list: gt.VarList) !void {
+    //if (var_list.len == 0) return;
+    //const function = try var_list.next() orelse return;
 }
 
 fn readArguments() ?Arguments {
