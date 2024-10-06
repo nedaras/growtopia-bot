@@ -61,6 +61,8 @@ pub fn getUserData(allocator: Allocator, token: []const u8) !UserData {
 
     try connection.wait();
 
+    var user_data: UserData = undefined;
+    var user_data_received = false;
     while (try connection.next()) |packet| switch (packet.type) {
         1 => try connection.sendPacket(2, "protocol|210\nltoken|{s}\nplatformID|0,1,1\n", .{token}),
         4 => {
@@ -88,7 +90,6 @@ pub fn getUserData(allocator: Allocator, token: []const u8) !UserData {
             };
 
             const on_send_to_server = try var_list.readStruct(OnSendToServer);
-            var user_data: UserData = undefined;
 
             @memcpy(&user_data.meta, &address.meta);
 
@@ -112,13 +113,23 @@ pub fn getUserData(allocator: Allocator, token: []const u8) !UserData {
             user_data.grow_id_buf_len = @intCast(on_send_to_server.grow_id.len);
 
             //connection.close(); // idk if we would just return that deinit would disconect;
+            // we need to send disconnect packet
 
-            //return user_data;
+            user_data_received = true;
+
+            var disconnect_packet = std.mem.zeroes(GrowtopiaGamePacket);
+            disconnect_packet.type = 26;
+
+            try connection.sendPacket2(4, std.mem.asBytes(&disconnect_packet));
         },
         else => return error.InvalidENetPacketType,
     };
 
-    return error.Disconnected;
+    if (!user_data_received) {
+        return error.Disconnected;
+    }
+
+    return user_data;
 }
 
 pub fn readGamePacket(data: []const u8) !GamePacket {

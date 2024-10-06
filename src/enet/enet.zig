@@ -87,6 +87,7 @@ pub const Connection = struct {
     };
 
     pub fn sendPacket(connection: Connection, comptime packet_type: u32, comptime fmt: []const u8, args: anytype) SendError!void {
+        comptime std.debug.assert(fmt.len != 0);
         comptime var prefix: [4]u8 = undefined;
         mem.writeInt(u32, &prefix, packet_type, .little);
 
@@ -120,6 +121,27 @@ pub const Connection = struct {
             return SendError.ENetPeerSend;
         }
         //std.debug.print("out packet({d}):\n{s}\n", .{packet_type, packet.*.data[4..packet.*.dataLength - 4]});
+    }
+
+    pub fn sendPacket2(connection: Connection, comptime packet_type: u32, data: []const u8) SendError!void {
+        std.debug.assert(data.len != 0);
+
+        var prefix: [4]u8 = undefined;
+        mem.writeInt(u32, &prefix, packet_type, .little);
+
+        const packet = c.enet_packet_create(null, data.len + 4, c.ENET_PACKET_FLAG_RELIABLE);
+        if (packet == null) {
+            return SendError.ENetPacketCreate;
+        }
+        errdefer c.enet_packet_destroy(packet);
+
+        const slice = packet.*.data[0..packet.*.dataLength];
+        @memcpy(slice[0..4], &prefix);
+        @memcpy(slice[4..], data);
+
+        if (c.enet_peer_send(connection.peer, 0, packet) != 0) {
+            return SendError.ENetPeerSend;
+        }
     }
 };
 
