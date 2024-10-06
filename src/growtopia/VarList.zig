@@ -96,7 +96,8 @@ pub fn readInt(self: *Self, comptime T: type) ReadError!T {
     return result;
 }
 
-pub fn readStruct(self: *Self, comptime T: type, ptr: *T) !void {
+pub fn readStruct(self: *Self, comptime T: type) !T {
+    var res: T = undefined;
     inline for (std.meta.fields(T)) |f| {
         switch (@typeInfo(f.type)) {
             .Pointer => |ptr_info| {
@@ -110,18 +111,18 @@ pub fn readStruct(self: *Self, comptime T: type, ptr: *T) !void {
                             @compileError("readStruct expects a struct with fields of type int or slice");
                         }
 
-                        @field(ptr, f.name) = try self.readStr();
+                        @field(&res, f.name) = try self.readStr();
                     },
                     else => @compileError("readStruct expects a struct with fields of type int or slice"),
                 }
             },
-            .Int => @field(ptr, f.name) = try self.readInt(f.type),
+            .Int => @field(&res, f.name) = try self.readInt(f.type),
             .Float => |float_info| {
-                @field(ptr, f.name) = @bitCast(try self.readInt(std.meta.Int(.unsigned, float_info.bits)));
+                @field(&res, f.name) = @bitCast(try self.readInt(std.meta.Int(.unsigned, float_info.bits)));
             },
             // check for struct of type Vec2 and Vec3
             else => @compileError("readStruct expects a struct with fields of type int or slice"),
         }
     }
-    // todo: dont forget endian byte swaping
+    return res; // todo: dont forget endian byte swaping
 }

@@ -28,7 +28,47 @@ pub fn main() !void {
         return;
     };
 
-    _ = try gt.getUserData(allocator, token);
+    const user_data = try gt.getUserData(allocator, token);
+
+    var rid: [32]u8 = undefined; // 32chars
+    const hash = std.crypto.random.int(i32); // i32
+    var klv: [64]u8 = undefined; // 64chars
+    const fz = std.crypto.random.int(i32); // i32
+    const zf = std.crypto.random.int(i32); // i32
+    var wk: [32]u8 = undefined; // 32 chars
+
+    randHexStr(&rid, .upper);
+    randHexStr(&klv, .lower);
+    randHexStr(&wk, .upper);
+
+    std.debug.print("UUIDToken|{s}\nprotocol|210\nfhash|-716928004\nhash2|0\nfz|{d}\nf|1\nplayer_age|18\ngame_version|4.66\nlmode|1\ncbits|1024\nrid|{s}\nGDPR|1\nhash|{d}\ncategory|_-5100\ntoken|{d}\ntotalPlaytime|0\ndoorID|0\nklv|{s}\nmeta|{s}\nplatformID|0,1,1\ndeviceVersion|0\nzf|{d}\ncountry|us\nuser|{d}\nwk|{s}\n", .{ user_data.uuid_token, fz, rid, hash, user_data.token, klv, user_data.meta, zf, user_data.user, wk });
+    std.debug.print("host: {s}, port: {d}\n", .{ user_data.host, user_data.port });
+
+    var connection = try enet.connectToServer(allocator, .{
+        .host = &user_data.host,
+        .port = user_data.port,
+    });
+    defer connection.deinit();
+
+    try connection.wait();
+
+    while (try connection.next()) |packet| {
+        switch (packet.type) {
+            7 => { // NET_MESSAGE_CLIENT_LOG_REQUEST
+                std.debug.print("NET_MESSAGE_CLIENT_LOG_REQUEST", .{});
+                try connection.sendPacket(2, "UUIDToken|{s}\nprotocol|210\nfhash|-716928004\nhash2|0\nfz|{d}\nf|1\nplayer_age|18\ngame_version|4.66\nlmode|1\ncbits|1024\nrid|{s}\nGDPR|1\nhash|{d}\ncategory|_-5100\ntoken|{d}\ntotalPlaytime|0\ndoorID|0\nklv|{s}\nmeta|{s}\nplatformID|0,1,1\ndeviceVersion|0\nzf|{d}\ncountry|us\nuser|{d}\nwk|{s}\n", .{ user_data.uuid_token, fz, rid, hash, user_data.token, klv, user_data.meta, zf, user_data.user, wk });
+            },
+            else => {
+                std.debug.print("unknown packet: {d}, data: \n{s}\n", .{ packet.type, packet.data });
+                //connection.close();
+            },
+        }
+    }
+
+    std.debug.print("disconneted!\n", .{});
+
+    //std.debug.print("token: {s}\n", .{user_data.uuid_token});
+    //std.debug.print("grow_id: {s}\n", .{user_data.growID()});
 
     //var connection = try enet.connectToServer(allocator, .{
     //.host = server_data.server(),
@@ -90,6 +130,15 @@ pub fn main() !void {
     //};
 
     //std.debug.print("disconnected\n", .{});
+}
+
+fn randHexStr(buf: []u8, case: std.fmt.Case) void {
+    std.debug.assert(buf.len % 2 == 0);
+    var i: usize = 0;
+    while (i < buf.len) : (i += 2) {
+        const hex = std.fmt.bytesToHex([1]u8{std.crypto.random.int(u8)}, case);
+        @memcpy(buf[i .. i + 2], &hex);
+    }
 }
 
 //fn handleVarLists(connection: *enet.Connection, var_list: gt.VarList) !void {

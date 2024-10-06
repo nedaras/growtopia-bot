@@ -32,7 +32,23 @@ pub const GamePacket = struct {
     var_list: ?VarList,
 };
 
-pub const UserData = struct {};
+// todo: make that host into 4 byte integer
+pub const UserData = struct {
+    meta: [44]u8,
+    port: u16,
+    token: i32,
+    user: i32,
+    host: [15:0]u8,
+    unk1: i32,
+    uuid_token: [32]u8,
+    unk2: i32,
+    grow_id_buf: [18]u8,
+    grow_id_buf_len: u8,
+
+    pub inline fn growID(user_data: *const UserData) []const u8 {
+        return user_data.grow_id_buf[0..user_data.grow_id_buf_len];
+    }
+};
 
 pub fn getUserData(allocator: Allocator, token: []const u8) !UserData {
     const address = try getServerAddress(allocator);
@@ -51,37 +67,58 @@ pub fn getUserData(allocator: Allocator, token: []const u8) !UserData {
             if (packet.data.len == 0) return error.EmptyPacket;
             const game_packet = try readGamePacket(packet.data);
 
+            std.debug.print("game_packet_type: {d}\n", .{game_packet.type});
+
             if (game_packet.type != 1 or game_packet.var_list == null) {
                 return error.UnexpectedGamePacket;
             }
 
             var var_list = game_packet.var_list.?;
-            std.debug.print("function: {s}\n", .{try var_list.readStr()});
-
-            if (mem.eql(u8, try var_list.readStr(), "OnSendToServer")) {
+            if (!mem.eql(u8, try var_list.readStr(), "OnSendToServer")) {
                 return error.UnexpectedGamePacket;
             }
 
             const OnSendToServer = struct {
                 port: i32,
-                unk1: i32,
-                unk2: i32,
-                unk3: []const u8,
-                unk4: i32,
+                token: i32,
+                user: i32,
+                data: []const u8,
+                unk: i32, // prob GPDR idk what even is that
                 grow_id: []const u8,
             };
 
-            var on_send_to_server: OnSendToServer = undefined;
-            try var_list.readStruct(OnSendToServer, &on_send_to_server);
+            const on_send_to_server = try var_list.readStruct(OnSendToServer);
+            var user_data: UserData = undefined;
 
-            std.debug.print("grow_id: {s}\n", .{on_send_to_server.grow_id});
+            @memcpy(&user_data.meta, &address.meta);
 
-            connection.close();
+            user_data.port = @intCast(on_send_to_server.port);
+            user_data.token = on_send_to_server.token;
+            user_data.user = on_send_to_server.user;
+
+            var iter = std.mem.tokenizeScalar(u8, on_send_to_server.data, '|');
+
+            // there can prob be lots of error here cuz of bad indexing
+            @memcpy(&user_data.host, iter.next() orelse return error.InvalidData);
+            user_data.host[user_data.host.len] = '\x00';
+
+            user_data.unk1 = try std.fmt.parseInt(i32, iter.next() orelse return error.InvalidData, 10);
+
+            @memcpy(&user_data.uuid_token, iter.next() orelse return error.InvalidData);
+
+            user_data.unk2 = on_send_to_server.unk;
+
+            @memcpy(user_data.grow_id_buf[0..on_send_to_server.grow_id.len], on_send_to_server.grow_id);
+            user_data.grow_id_buf_len = @intCast(on_send_to_server.grow_id.len);
+
+            //connection.close(); // idk if we would just return that deinit would disconect;
+
+            //return user_data;
         },
         else => return error.InvalidENetPacketType,
     };
 
-    return error.NotFound;
+    return error.Disconnected;
 }
 
 pub fn readGamePacket(data: []const u8) !GamePacket {
@@ -110,6 +147,7 @@ pub fn readGamePacket(data: []const u8) !GamePacket {
 }
 
 const ServerAddress = struct {
+    meta: [44]u8,
     host_buf: [32]u8,
     host_buf_len: u8,
     port: u16,
@@ -154,12 +192,14 @@ fn getServerAddress(allocator: std.mem.Allocator) !ServerAddress {
     const response = response_buffer[0..len];
 
     var address: ServerAddress = .{
+        .meta = undefined,
         .host_buf = undefined,
         .host_buf_len = 0,
         .port = 0,
     };
 
     var iter = std.mem.tokenize(u8, response, "|\n");
+    var meta_found = false;
     while (iter.next()) |val| {
         if (std.mem.eql(u8, val, "maint")) {
             return error.UnderMaintenance;
@@ -179,9 +219,14 @@ fn getServerAddress(allocator: std.mem.Allocator) !ServerAddress {
             address.host_buf[server.len] = '\x00';
             address.host_buf_len = @intCast(server.len);
         }
+        if (std.mem.eql(u8, val, "meta")) {
+            const meta = iter.next() orelse continue;
+            @memcpy(&address.meta, meta);
+            meta_found = true;
+        }
     }
 
-    if (address.host_buf_len == 0 or address.port == 0) {
+    if (address.host_buf_len == 0 or address.port == 0 or !meta_found) {
         return error.MissingFields;
     }
 
