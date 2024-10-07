@@ -30,18 +30,14 @@ pub fn main() !void {
 
     const user_data = try gt.getUserData(allocator, token);
 
-    var rid: [32]u8 = undefined; // 32chars
-    const hash = std.crypto.random.int(i32); // i32
-    var klv: [64]u8 = undefined; // 64chars
-    const fz = std.crypto.random.int(i32); // i32
-    const zf = std.crypto.random.int(i32); // i32
-    var wk: [32]u8 = undefined; // 32 chars
+    const fz = "22759448"; // idk how to get
+    const rid = "0209A19C04891B5202957749038D0764"; // -> rand gen?
+    const hash = "1667618679"; // idk how to get
+    const klv = "791a95967e27bc9d9e5c96fae4e97ac2f01ecc4502f1b61126fa1ea5acdf318c"; // -> rand gen?
+    const zf = "1450102713"; // idk how to get
+    const wk = "4E343F653C07C371E5771A6756C74BDE"; // idk how to get
 
-    randHexStr(&rid, .upper);
-    randHexStr(&klv, .lower);
-    randHexStr(&wk, .upper);
-
-    std.debug.print("UUIDToken|{s}\nprotocol|210\nfhash|-716928004\nhash2|0\nfz|{d}\nf|1\nplayer_age|18\ngame_version|4.66\nlmode|1\ncbits|1024\nrid|{s}\nGDPR|1\nhash|{d}\ncategory|_-5100\ntoken|{d}\ntotalPlaytime|0\ndoorID|0\nklv|{s}\nmeta|{s}\nplatformID|0,1,1\ndeviceVersion|0\nzf|{d}\ncountry|us\nuser|{d}\nwk|{s}\n", .{ user_data.uuid_token, fz, rid, hash, user_data.token, klv, user_data.meta, zf, user_data.user, wk });
+    std.debug.print("tankIDName|\ntankIDPass|\nrequestedName|\nf|1\nprotocol|210\ngameversion|4.66\nfz|{s}\nlmode|1\ncbits|1024\nplayer_age|18\nGDPR|1\ncategory|-5100\ntotalPlaytime|0\nklv|{s}\nhash2|0\nmeta|{s}\nfhash|-716928004\nrid|{s}\nplatformID|0,1,1\ndeviceVersion|0\ncountry|us\nhash|{s}\nmac|\nuser|{d}\ntoken|{d}\nUUIDToken|{s}\ndoorID|0\nwk|{s}\nzf|{s}", .{ fz, klv, user_data.meta, rid, hash, user_data.user, user_data.token, user_data.uuid_token, wk, zf });
     std.debug.print("host: {s}, port: {d}\n", .{ user_data.host, user_data.port });
 
     var connection = try enet.connectToServer(allocator, .{
@@ -52,84 +48,22 @@ pub fn main() !void {
 
     try connection.wait();
 
+    std.debug.print("connected!\n", .{});
+
     while (try connection.next()) |packet| {
         switch (packet.type) {
             7 => { // NET_MESSAGE_CLIENT_LOG_REQUEST
-                std.debug.print("NET_MESSAGE_CLIENT_LOG_REQUEST", .{});
-                try connection.sendPacket(2, "UUIDToken|{s}\nprotocol|210\nfhash|-716928004\nhash2|0\nfz|{d}\nf|1\nplayer_age|18\ngame_version|4.66\nlmode|1\ncbits|1024\nrid|{s}\nGDPR|1\nhash|{d}\ncategory|_-5100\ntoken|{d}\ntotalPlaytime|0\ndoorID|0\nklv|{s}\nmeta|{s}\nplatformID|0,1,1\ndeviceVersion|0\nzf|{d}\ncountry|us\nuser|{d}\nwk|{s}\n", .{ user_data.uuid_token, fz, rid, hash, user_data.token, klv, user_data.meta, zf, user_data.user, wk });
+                std.debug.print("NET_MESSAGE_CLIENT_LOG_REQUEST\n", .{});
+                try connection.sendPacket(2, "tankIDName|\ntankIDPass|\nrequestedName|\nf|1\nprotocol|210\ngameversion|4.66\nfz|{s}\nlmode|1\ncbits|1024\nplayer_age|18\nGDPR|1\ncategory|-5100\ntotalPlaytime|0\nklv|{s}\nhash2|0\nmeta|{s}\nfhash|-716928004\nrid|{s}\nplatformID|0,1,1\ndeviceVersion|0\ncountry|us\nhash|{s}\nmac|\nuser|{d}\ntoken|{d}\nUUIDToken|{s}\ndoorID|0\nwk|{s}\nzf|{s}", .{ fz, klv, user_data.meta, rid, hash, user_data.user, user_data.token, user_data.uuid_token, wk, zf });
             },
             else => {
-                std.debug.print("unknown packet: {d}, data: \n{s}\n", .{ packet.type, packet.data });
+                std.debug.print("unknown packet: {d}, data({d}): \n{s}\n", .{ packet.type, packet.data.len, packet.data });
                 //connection.close();
             },
         }
     }
 
     std.debug.print("disconneted!\n", .{});
-
-    //std.debug.print("token: {s}\n", .{user_data.uuid_token});
-    //std.debug.print("grow_id: {s}\n", .{user_data.growID()});
-
-    //var connection = try enet.connectToServer(allocator, .{
-    //.host = server_data.server(),
-    //.port = server_data.port,
-    //});
-    //defer connection.deinit();
-
-    //try connection.wait();
-
-    //while (try connection.next()) |packet| switch (packet.type) {
-    //1 => {
-    //try connection.sendPacket(2, "protocol|210\nltoken|{s}\nplatformID|0,1,1\n", .{token});
-    //},
-    //4 => {
-    //if (packet.data.len == 0) {
-    //connection.close();
-    //continue;
-    //}
-
-    //const game_packet = try gt.readGamePacket(packet.data);
-    //if (game_packet != 1 or game_packet.var_list == null) {
-    //connection.close();
-    //continue;
-    //}
-
-    //try handleVarLists(connection, game_packet.var_list.?);
-
-    //switch (game_packet.type) {
-    //1 => {
-    //var var_list = game_packet.var_list orelse {
-    //connection.close();
-    //continue;
-    //};
-
-    //var buffer: []1024 = undefined;
-    //const packet = handleVarLists(&buffer, var_list);
-
-    //var var_list = game_packet.var_list.?;
-    //while (try var_list.next()) |arg| switch (arg) {
-    //.f32 => |n|   std.debug.print("[f32]:  {d}\n", .{n}),
-    //.str => |str| std.debug.print("[str]:  {s}\n", .{str}),
-    //.vec2 => |n|  std.debug.print("[vec2]: ({d}, {d})\n", .{n.x, n.y}),
-    //.vec3 => |n|  std.debug.print("[vec3]: ({d}, {d}, {d})\n", .{n.x, n.y, n.z}),
-    //.u32 => |n|   std.debug.print("[u32]:  {d}\n", .{n}),
-    //.i32 => |n|   std.debug.print("[i32]:  {d}\n", .{n}),
-    //};
-    //connection.close();
-    //},
-    //else => {
-    //connection.close();
-    //std.debug.print("unknown game packet type\n", .{});
-    //},
-    //}
-    //},
-    //else => {
-    //connection.close();
-    //std.debug.print("Unknown packet with enet type: {d}\n", .{packet.type});
-    //},
-    //};
-
-    //std.debug.print("disconnected\n", .{});
 }
 
 fn randHexStr(buf: []u8, case: std.fmt.Case) void {

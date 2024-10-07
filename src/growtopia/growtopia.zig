@@ -69,8 +69,6 @@ pub fn getUserData(allocator: Allocator, token: []const u8) !UserData {
             if (packet.data.len == 0) return error.EmptyPacket;
             const game_packet = try readGamePacket(packet.data);
 
-            std.debug.print("game_packet_type: {d}\n", .{game_packet.type});
-
             if (game_packet.type != 1 or game_packet.var_list == null) {
                 return error.UnexpectedGamePacket;
             }
@@ -121,6 +119,8 @@ pub fn getUserData(allocator: Allocator, token: []const u8) !UserData {
             disconnect_packet.type = 26;
 
             try connection.sendPacket2(4, std.mem.asBytes(&disconnect_packet));
+
+            connection.close();
         },
         else => return error.InvalidENetPacketType,
     };
